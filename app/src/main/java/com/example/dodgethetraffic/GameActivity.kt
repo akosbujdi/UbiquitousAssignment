@@ -3,6 +3,7 @@ package com.example.dodgethetraffic
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.FrameLayout
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 
 class GameActivity : AppCompatActivity() {
@@ -10,6 +11,7 @@ class GameActivity : AppCompatActivity() {
     private lateinit var gameView: GameView
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_game)
 

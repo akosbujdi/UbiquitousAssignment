@@ -12,11 +12,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DodgeTheTraffic">
         <activity
-            android:name=".LeaderboardActivity"
+            android:name=".GameActivity"
             android:exported="false"
             android:theme="@style/Theme.DodgeTheTraffic" />
-        <activity
-            android:name=".GameActivity"
+        <activity android:name=".LeaderboardActivity"
             android:exported="false"
             android:theme="@style/Theme.DodgeTheTraffic" />
         <activity

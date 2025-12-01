@@ -12,8 +12,10 @@
         android:gravity="center"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="23dp"
+        android:layout_marginEnd="23dp"
         android:layout_centerInParent="true"
-        android:padding="36dp"
+        android:padding="22dp"
         android:background="@drawable/menu_box"
         android:elevation="6dp">
 

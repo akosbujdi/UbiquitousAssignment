@@ -3,7 +3,6 @@ package com.example.dodgethetraffic
 import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
-import android.view.SurfaceHolder
 import android.view.SurfaceView
 
 data class TrafficCar(
@@ -21,6 +20,7 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
 
     private var startTime: Long = 0L
     private var elapsedTime: Long = 0L
+    private var score = 0
     private val scorePaint = Paint().apply {
         color = Color.BLACK
         textSize = 72f
@@ -130,6 +130,9 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
                     playerTop < carBottom
                 ) {
                     isPlaying = false // collision detected
+                    post {
+                        showGameOverDialog()
+                    }
                 }
             }
 
@@ -145,8 +148,8 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
                 paint
             )
 
-            val seconds = (elapsedTime / 1000).toInt()
-            canvas.drawText("Score: $seconds", 50f, 100f, scorePaint)
+            score = (elapsedTime / 1000).toInt()
+            canvas.drawText("Score: $score", 50f, 100f, scorePaint)
 
             holder.unlockCanvasAndPost(canvas)
         }
@@ -164,6 +167,121 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
     fun resume() {
         isPlaying = true
         startTime = System.currentTimeMillis()
+        thread = Thread(this)
+        thread?.start()
+    }
+
+    private fun showGameOverDialog() {
+        val builder = android.app.AlertDialog.Builder(context)
+        builder.setTitle("You Crashed!")
+        builder.setMessage("Your score: $score") // your score variable
+        builder.setCancelable(false)
+
+        builder.setPositiveButton("Play Again") { _, _ ->
+            // Restart the game
+            resetGame()
+        }
+
+        builder.setNegativeButton("Main Menu") { _, _ ->
+            // Go back to MainActivity
+            if (context is android.app.Activity) {
+                (context as android.app.Activity).finish()
+            }
+        }
+
+        builder.setNeutralButton("Save Score") { _, _ ->
+            promptSaveScore()
+        }
+
+        builder.show()
+    }
+
+    private fun promptSaveScore() {
+        val input = android.widget.EditText(context)
+
+        // Only allow A–Z, limit to 4 characters
+        input.filters = arrayOf(
+            android.text.InputFilter.LengthFilter(4),
+            android.text.InputFilter { source, _, _, _, _, _ ->
+                if (source.toString().matches(Regex("[a-zA-Z]+"))) {
+                    source
+                } else ""
+            }
+        )
+        input.hint = "4-letter username"
+        input.isSingleLine = true
+
+        val builder = android.app.AlertDialog.Builder(context)
+        builder.setTitle("Enter your name")
+        builder.setMessage("Use 4 letters, like old arcade games!")
+        builder.setView(input)
+        builder.setCancelable(false)
+
+        builder.setPositiveButton("Save") { _, _ ->
+            val name = input.text.toString().uppercase()
+
+            if (name.length == 4) {
+                saveScoreToFirebase(name, score)
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    "Leaderboard name must be exactly 4 letters!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+
+        builder.show()
+    }
+
+    private fun saveScoreToFirebase(name: String, score: Int) {
+        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+
+        val entry = hashMapOf(
+            "name" to name,
+            "score" to score,
+            "timestamp" to System.currentTimeMillis()
+        )
+
+        db.collection("leaderboard")
+            .add(entry)
+            .addOnSuccessListener {
+                android.widget.Toast.makeText(
+                    context,
+                    "Score saved!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                if (context is android.app.Activity) {
+                    (context as android.app.Activity).finish()
+                }
+            }
+            .addOnFailureListener {
+                android.widget.Toast.makeText(
+                    context,
+                    "Failed to save score!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+    }
+
+
+    private fun resetGame() {
+        // Reset player position
+        playerX = (width - playerWidth) / 2
+        playerY = height * 0.7f
+
+        // Clear traffic cars
+        trafficCars.clear()
+
+        // Reset timer / score
+        startTime = System.currentTimeMillis()
+        elapsedTime = 0L
+        score = 0
+
+        // Resume game loop
+        isPlaying = true
         thread = Thread(this)
         thread?.start()
     }
