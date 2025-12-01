@@ -12,6 +12,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DodgeTheTraffic">
         <activity
+            android:name=".LeaderboardActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DodgeTheTraffic" />
+        <activity
+            android:name=".GameActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DodgeTheTraffic" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
