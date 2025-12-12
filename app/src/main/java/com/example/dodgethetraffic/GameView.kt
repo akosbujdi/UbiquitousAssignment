@@ -17,6 +17,8 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
     private var thread: Thread? = null
     private var isPlaying = false
     private val paint = Paint()
+    private var tiltSpeed = 0f   // Microbit horizontal velocity
+
 
     private var startTime: Long = 0L
     private var elapsedTime: Long = 0L
@@ -55,6 +57,15 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
 
             val screenWidth = canvas.width
             val screenHeight = canvas.height
+            // Move player by tilt speed
+            playerX += tiltSpeed
+
+            // Prevent going off-screen
+            if (playerX < 0) playerX = 0f
+            if (playerX + playerWidth > screenWidth) {
+                playerX = screenWidth - playerWidth
+            }
+
 
             canvas.drawBitmap(
                 Bitmap.createScaledBitmap(backgroundBitmap, screenWidth, screenHeight, false),
@@ -170,6 +181,10 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
         thread = Thread(this)
         thread?.start()
     }
+    fun setHorizontalSpeed(speed: Float) {
+        tiltSpeed = speed
+    }
+
 
     private fun showGameOverDialog() {
         val builder = android.app.AlertDialog.Builder(context)
