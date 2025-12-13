@@ -1,18 +1,21 @@
 package com.example.dodgethetraffic
 
-import com.google.firebase.FirebaseApp
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.google.firebase.FirebaseApp
 
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d("MicrobitBT", "MainActivity onCreate - app started")
+
         FirebaseApp.initializeApp(this)
 
         enableEdgeToEdge()
@@ -24,17 +27,13 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        val playButton = findViewById<Button>(R.id.playButton)
-        val leaderboardButton = findViewById<Button>(R.id.leaderboardButton)
-
-        playButton.setOnClickListener {
-            val intent = Intent(this, GameActivity::class.java)
-            startActivity(intent)
+        findViewById<Button>(R.id.playButton).setOnClickListener {
+            Log.d("MicrobitBT", "Play pressed -> starting GameActivity")
+            startActivity(Intent(this, GameActivity::class.java))
         }
 
-        leaderboardButton.setOnClickListener {
-            val intent = Intent(this, LeaderboardActivity::class.java)
-            startActivity(intent)
+        findViewById<Button>(R.id.leaderboardButton).setOnClickListener {
+            startActivity(Intent(this, LeaderboardActivity::class.java))
         }
     }
 }

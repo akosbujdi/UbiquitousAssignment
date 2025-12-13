@@ -1,79 +1,114 @@
 package com.example.dodgethetraffic
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.widget.FrameLayout
 import android.util.Log
+import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresPermission
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class GameActivity : AppCompatActivity() {
 
     private lateinit var gameView: GameView
     private lateinit var microbit: Microbit
 
-    private val BLE_PERMISSIONS = arrayOf(
-        Manifest.permission.BLUETOOTH_SCAN,
-        Manifest.permission.BLUETOOTH_CONNECT,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    )
-
     private val REQ_BLE = 2001
+    private var lastLane: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_game)
 
-        // Initialize GameView inside the layout
         gameView = GameView(this)
-        val root = findViewById<FrameLayout>(R.id.gameRoot)
-        root.addView(gameView)
+        findViewById<FrameLayout>(R.id.gameRoot).addView(gameView)
 
-        // Create Microbit controller
         microbit = Microbit(this) { cmd ->
-            handleMicrobitCommand(cmd)
+            Log.d("MicrobitBT", "Received command: $cmd")
+            runOnUiThread { handleMicrobitCommand(cmd) }
         }
-
-        ensureBLEPermissions()
     }
+
+    override fun onStart() {
+        super.onStart()
+        ensureBlePermissionsAndConnect()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        gameView.resume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        gameView.pause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // IMPORTANT: leaving game (back to main menu) -> clean disconnect
+        safeDisconnect()
+    }
+
     private fun handleMicrobitCommand(cmd: String) {
-        Log.d("GameActivity", "Microbit Command: $cmd")
+        if (!cmd.startsWith("LANE:", ignoreCase = true)) return
+        val lane = cmd.substringAfter("LANE:").trim().toIntOrNull() ?: return
 
-        if (cmd.startsWith("SPD:")) {
-            val speed = cmd.substring(4).toFloatOrNull() ?: 0f
-            gameView.setHorizontalSpeed(speed)
-        }
+        // ignore duplicates
+        if (lane == lastLane) return
+        lastLane = lane
+
+        Log.d("MicrobitBT", "Move lane -> $lane")
+        gameView.movePlayerToLane(lane)
     }
 
+    // ---------------- Permissions + Connect ----------------
 
-    // ---------------------------------------------------------
-    // BLE PERMISSIONS
-    // ---------------------------------------------------------
-    private fun ensureBLEPermissions() {
-        val missingPermission = BLE_PERMISSIONS.any { perm ->
-            ActivityCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missingPermission) {
-            ActivityCompat.requestPermissions(
-                this,
-                BLE_PERMISSIONS,
-                REQ_BLE
+    private fun requiredPerms(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
             )
         } else {
-            startMicrobitScan()
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    private fun ensureBlePermissionsAndConnect() {
+        val missing = requiredPerms().filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_BLE)
+        } else {
+            startScan()
         }
     }
 
 
-    @SuppressLint("MissingPermission")
-    private fun startMicrobitScan() {
-        Log.d("GameActivity", "Scanning for micro:bit…")
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
+    private fun startScan() {
+        Toast.makeText(this, "Connecting to micro:bit...", Toast.LENGTH_SHORT).show()
         microbit.startScan()
+    }
+
+
+    private fun safeDisconnect() {
+        val hasConnectPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+        if (hasConnectPerm) {
+            microbit.disconnect()
+        }
+        lastLane = null
     }
 
     override fun onRequestPermissionsResult(
@@ -82,37 +117,11 @@ class GameActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_BLE &&
-            grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-        ) {
-            startMicrobitScan()
+
+        if (requestCode == REQ_BLE) {
+            val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (granted) startScan()
+            else Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_LONG).show()
         }
     }
-
-
-    // ---------------------------------------------------------
-    // GAME LIFECYCLE
-    // ---------------------------------------------------------
-    override fun onPause() {
-        super.onPause()
-        gameView.pause()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        gameView.resume()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            microbit.disconnect()
-        }
-    }
-
 }
