@@ -5,6 +5,9 @@ import android.graphics.*
 import android.view.MotionEvent
 import android.view.SurfaceView
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.random.Random
 
 data class TrafficCar(
     var x: Float,
@@ -45,11 +48,15 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
     private var laneX = FloatArray(laneCount)
     private var currentLane = 1 // start in middle lane
 
-    private var spawnTimer = System.currentTimeMillis()
-    private val spawnInterval = 1800L
-    private val trafficSpeedFactor = 0.027f
+    // --- NEW SPAWN SYSTEM ---
+    private var nextSpawnAt = System.currentTimeMillis() + 1200L
+    private var lastLane = 1
+
     private val hitboxPadding = 0.2f
     private var initialized = false
+
+    // tweak these
+    private val baseSpeedFactor = 0.015f
 
     override fun run() {
         while (isPlaying) {
@@ -69,12 +76,10 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
 
             // One-time layout init
             if (!initialized) {
-                // Make car size reasonable for 3 lanes
                 playerWidth = screenWidth * 0.24f
                 playerHeight = playerWidth * (playerBitmap.height.toFloat() / playerBitmap.width.toFloat())
                 playerY = screenHeight * 0.7f
 
-                // Same width for traffic cars
                 val trafficWidth = screenWidth * 0.24f
                 val roadLeft = screenWidth * 0.08f
                 val roadRight = screenWidth * 0.92f
@@ -86,33 +91,24 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
                     laneX[i] = roadLeft + i * step
                 }
 
-                // Place player in current lane
                 playerX = laneX[currentLane]
-
                 initialized = true
             }
 
-            // Spawn traffic cars
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - spawnTimer > spawnInterval) {
-                spawnTimer = currentTime
-
-                val lane = (0 until laneCount).random()
-                val trafficWidth = screenWidth * 0.24f
-                val trafficHeight = trafficWidth * (blueCarBitmap.height.toFloat() / blueCarBitmap.width.toFloat())
-
-                trafficCars.add(
-                    TrafficCar(
-                        x = laneX[lane],
-                        y = -trafficHeight,
-                        width = trafficWidth,
-                        height = trafficHeight
-                    )
-                )
+            // -------------------------
+            // Better spawn logic here ✅
+            // -------------------------
+            val now = System.currentTimeMillis()
+            if (now >= nextSpawnAt) {
+                spawnTraffic(screenWidth)
+                scheduleNextSpawn()
             }
 
+            // Difficulty: slightly faster cars over time
+            val difficulty = difficulty01() // 0..1
+            val trafficSpeed = screenHeight * (baseSpeedFactor + 0.010f * difficulty)
+
             // Move traffic + collisions
-            val trafficSpeed = screenHeight * trafficSpeedFactor
             val iterator = trafficCars.iterator()
             while (iterator.hasNext()) {
                 val car = iterator.next()
@@ -159,6 +155,97 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
         }
     }
 
+    // 0..1 over time (ramps over ~60s then caps)
+    private fun difficulty01(): Float {
+        val s = (elapsedTime / 1000f)
+        return (s / 60f).coerceIn(0f, 1f)
+    }
+
+    private fun scheduleNextSpawn() {
+        val d = difficulty01()
+
+        // interval shrinks with difficulty (more intense)
+        val base = 1500L
+        val minInt = 520L
+        val interval = (base - (900L * d)).toLong().coerceAtLeast(minInt)
+
+        // add jitter so it’s not robotic
+        val jitter = Random.nextLong(-220L, 260L)
+
+        nextSpawnAt = System.currentTimeMillis() + max(220L, interval + jitter)
+    }
+
+    private fun spawnTraffic(screenWidth: Int) {
+        val trafficWidth = screenWidth * 0.24f
+        val trafficHeight = trafficWidth * (blueCarBitmap.height.toFloat() / blueCarBitmap.width.toFloat())
+
+        val d = difficulty01()
+
+        // pattern weights (more chaos as difficulty rises)
+        val roll = Random.nextFloat()
+
+        when {
+            // mostly single early game
+            roll < (0.60f - 0.20f * d) -> {
+                val lane = pickLane()
+                spawnCar(lane, trafficWidth, trafficHeight, yOffset = 0f)
+            }
+
+            // double spawn in 2 lanes (gets more common later)
+            roll < (0.88f - 0.05f * (1f - d)) -> {
+                val (a, b) = pickTwoLanes()
+                // slight y offset so they don't look identical
+                spawnCar(a, trafficWidth, trafficHeight, yOffset = 0f)
+                spawnCar(b, trafficWidth, trafficHeight, yOffset = -(trafficHeight * 0.35f))
+            }
+
+            // “train” in same lane (staggered)
+            roll < 0.95f -> {
+                val lane = pickLane()
+                spawnCar(lane, trafficWidth, trafficHeight, yOffset = 0f)
+                spawnCar(lane, trafficWidth, trafficHeight, yOffset = -(trafficHeight * 0.85f))
+            }
+
+           
+        }
+    }
+
+    private fun spawnCar(lane: Int, w: Float, h: Float, yOffset: Float) {
+        trafficCars.add(
+            TrafficCar(
+                x = laneX[lane],
+                y = -h + yOffset,
+                width = w,
+                height = h
+            )
+        )
+        lastLane = lane
+    }
+
+    // makes lane choice feel less random/boring (tends to drift left/right)
+    private fun pickLane(): Int {
+        val roll = Random.nextFloat()
+        val lane = when {
+            roll < 0.55f -> lastLane                           // repeat sometimes
+            roll < 0.85f -> (lastLane + if (Random.nextBoolean()) 1 else -1) // adjacent
+            else -> Random.nextInt(0, laneCount)               // jump
+        }.coerceIn(0, laneCount - 1)
+
+        return lane
+    }
+
+    private fun pickTwoLanes(): Pair<Int, Int> {
+        val first = pickLane()
+        var second = Random.nextInt(0, laneCount)
+        while (second == first) second = Random.nextInt(0, laneCount)
+        return Pair(first, second)
+    }
+
+    // a simple “wave” burst pattern
+    private fun pickBurstSequence(): IntArray {
+        return if (Random.nextBoolean()) intArrayOf(0, 1, 2) else intArrayOf(2, 1, 0)
+    }
+
     fun pause() {
         isPlaying = false
         try { thread?.join() } catch (_: InterruptedException) {}
@@ -167,17 +254,15 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
     fun resume() {
         isPlaying = true
         startTime = System.currentTimeMillis()
+        nextSpawnAt = System.currentTimeMillis() + 900L
         thread = Thread(this)
         thread?.start()
     }
 
-    // ✅ This is what GameActivity should call when it receives "LANE:0/1/2"
     fun movePlayerToLane(lane: Int) {
         val clamped = lane.coerceIn(0, laneCount - 1)
         currentLane = clamped
-        if (initialized) {
-            playerX = laneX[currentLane]
-        }
+        if (initialized) playerX = laneX[currentLane]
     }
 
     private fun showGameOverDialog() {
@@ -247,12 +332,13 @@ class GameView(context: Context) : SurfaceView(context), Runnable {
         elapsedTime = 0L
         score = 0
 
+        nextSpawnAt = System.currentTimeMillis() + 900L
+
         isPlaying = true
         thread = Thread(this)
         thread?.start()
     }
 
-    // Optional: touch snaps to nearest lane (still works nicely)
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!initialized) return true
 

@@ -7,10 +7,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.util.Log
+import androidx.annotation.RequiresPermission
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -21,79 +21,46 @@ class Microbit(
     private val appContext = context.applicationContext
     private val handler = Handler(appContext.mainLooper)
 
-    private val bluetoothManager =
-        appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-    private val adapter: BluetoothAdapter? = bluetoothManager.adapter
+    private val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val adapter: BluetoothAdapter? = manager.adapter
 
     private var gatt: BluetoothGatt? = null
+    private var eventChar: BluetoothGattCharacteristic? = null
+    private var reqChar: BluetoothGattCharacteristic? = null
 
     private val scanning = AtomicBoolean(false)
     private val connecting = AtomicBoolean(false)
     private val connected = AtomicBoolean(false)
 
     companion object {
-        // Prevents 2 Activities from connecting at the same time
+        // prevents MainActivity + GameActivity both trying to connect at once
         private val busy = AtomicBoolean(false)
     }
 
-    // micro:bit Event Service UUIDs (matches your logs)
+    // micro:bit Event Service UUIDs
     private val EVENT_SERVICE_UUID = UUID.fromString("E95D93AF-251D-470A-A062-FA1922DFA9A8")
     private val EVENT_CHAR_UUID    = UUID.fromString("E95D9775-251D-470A-A062-FA1922DFA9A8")
     private val REQ_CHAR_UUID      = UUID.fromString("E95D23C4-251D-470A-A062-FA1922DFA9A8")
     private val CCCD_UUID          = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-    private var eventChar: BluetoothGattCharacteristic? = null
-    private var reqChar: BluetoothGattCharacteristic? = null
-
     private val EVT_LANE = 1104
 
     private val scanTimeout = Runnable {
-        stopScanInternal()
+        stopScan()
         cleanup("scan timeout")
     }
 
     fun isConnected(): Boolean = connected.get()
 
-    // ---------------- Permissions (self-checked) ----------------
+    // ------------------------------------------------------------
+    // Public API
+    // ------------------------------------------------------------
 
-    private fun hasPerm(perm: String): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            appContext.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
-        } else true
-    }
-
-    private fun canScan(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            hasPerm(Manifest.permission.BLUETOOTH_SCAN)
-        } else {
-            // Many devices need location permission for BLE scan pre-Android 12
-            hasPerm(Manifest.permission.ACCESS_FINE_LOCATION) || hasPerm(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
-    }
-
-    private fun canConnect(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            hasPerm(Manifest.permission.BLUETOOTH_CONNECT)
-        } else true
-    }
-
-    // ---------------- Public API ----------------
-
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun startScan() {
         val a = adapter
         if (a == null || !a.isEnabled) {
             Log.e("MicrobitBT", "Bluetooth off / not available")
-            return
-        }
-
-        // If busy ever got stuck but there is no active state, free it
-        if (busy.get() && gatt == null && !scanning.get() && !connecting.get() && !connected.get()) {
-            busy.set(false)
-        }
-
-        if (!canScan()) {
-            Log.e("MicrobitBT", "Missing permission: BLUETOOTH_SCAN (or Location on <12)")
-            cleanup("missing scan permission")
             return
         }
 
@@ -107,7 +74,6 @@ class Microbit(
             return
         }
 
-        // reset connection state
         connecting.set(false)
         connected.set(false)
 
@@ -121,46 +87,34 @@ class Microbit(
             .build()
 
         Log.d("MicrobitBT", "Starting scan…")
-
-        try {
-            scanner.startScan(null, settings, scanCallback)
-        } catch (e: SecurityException) {
-            Log.e("MicrobitBT", "SecurityException starting scan: ${e.message}")
-            cleanup("scan SecurityException")
-            return
-        }
+        scanner.startScan(null, settings, scanCallback)
 
         handler.removeCallbacks(scanTimeout)
         handler.postDelayed(scanTimeout, 10_000)
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun disconnect() {
-        stopScanInternal()
-
+        stopScan()
         try {
             gatt?.disconnect()
-        } catch (_: SecurityException) {
-            // ignore
-        } catch (_: Exception) {
-            // ignore
-        }
-
-        handler.postDelayed({
-            try { gatt?.close() } catch (_: Exception) {}
-            gatt = null
-        }, 150)
-
+            gatt?.close()
+        } catch (_: Exception) {}
+        gatt = null
         cleanup("disconnect()")
     }
 
-    // ---------------- Scan ----------------
+    // ------------------------------------------------------------
+    // Scan
+    // ------------------------------------------------------------
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanFailed(errorCode: Int) {
-            stopScanInternal()
+            stopScan()
             cleanup("scan failed $errorCode")
         }
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (connecting.get() || connected.get()) return
 
@@ -170,76 +124,51 @@ class Microbit(
             Log.d("MicrobitBT", "Scan: name=$name addr=${device.address} rssi=${result.rssi}")
 
             if (name.isNullOrBlank() || !name.contains("micro:bit", ignoreCase = true)) return
-
             if (!connecting.compareAndSet(false, true)) return
 
-            stopScanInternal()
+            stopScan()
             connect(device)
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun stopScanInternal() {
+    private fun stopScan() {
         if (!scanning.getAndSet(false)) return
         handler.removeCallbacks(scanTimeout)
         try { adapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: Exception) {}
         Log.d("MicrobitBT", "Scan stopped")
     }
 
-    // ---------------- Connect + GATT ----------------
+    // ------------------------------------------------------------
+    // Connect + GATT
+    // ------------------------------------------------------------
 
     @SuppressLint("MissingPermission")
     private fun connect(device: BluetoothDevice) {
-        if (!canConnect()) {
-            Log.e("MicrobitBT", "Missing permission: BLUETOOTH_CONNECT")
-            cleanup("missing connect permission")
-            return
-        }
-
         Log.d("MicrobitBT", "Connecting to ${device.address}…")
 
         try { gatt?.close() } catch (_: Exception) {}
         gatt = null
 
-        // Optional bonding attempt (wrapped)
-        try {
-            if (device.bondState == BluetoothDevice.BOND_NONE) device.createBond()
-        } catch (_: Exception) {}
-
         handler.postDelayed({
-            try {
-                gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-                } else {
-                    device.connectGatt(appContext, false, gattCallback)
-                }
-            } catch (e: SecurityException) {
-                Log.e("MicrobitBT", "SecurityException connectGatt: ${e.message}")
-                cleanup("connectGatt SecurityException")
+            gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            } else {
+                device.connectGatt(appContext, false, gattCallback)
             }
         }, 200)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             Log.d("MicrobitBT", "Conn state: status=$status newState=$newState")
 
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connected.set(true)
-
-                // Stability tweaks (wrapped)
-                try { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) } catch (_: Exception) {}
-                try { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) g.requestMtu(185) } catch (_: Exception) {}
-
                 handler.postDelayed({
                     Log.d("MicrobitBT", "Connected → discoverServices()")
-                    try {
-                        g.discoverServices()
-                    } catch (e: SecurityException) {
-                        Log.e("MicrobitBT", "SecurityException discoverServices: ${e.message}")
-                        disconnect()
-                    }
+                    g.discoverServices()
                 }, 150)
                 return
             }
@@ -251,6 +180,7 @@ class Microbit(
             }
         }
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             Log.d("MicrobitBT", "Services discovered status=$status")
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -273,14 +203,8 @@ class Microbit(
                 return
             }
 
-            // Enable notifications
-            try {
-                g.setCharacteristicNotification(eventChar, true)
-            } catch (e: SecurityException) {
-                Log.e("MicrobitBT", "SecurityException setCharacteristicNotification: ${e.message}")
-                disconnect()
-                return
-            }
+            // Enable notifications for eventChar
+            g.setCharacteristicNotification(eventChar, true)
 
             val cccd = eventChar!!.getDescriptor(CCCD_UUID) ?: run {
                 Log.e("MicrobitBT", "CCCD missing")
@@ -288,25 +212,20 @@ class Microbit(
                 return
             }
 
-            val ok = try {
-                if (Build.VERSION.SDK_INT >= 33) {
-                    g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    run {
-                        cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        g.writeDescriptor(cccd)
-                    }
+            val ok = if (Build.VERSION.SDK_INT >= 33) {
+                g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    g.writeDescriptor(cccd)
                 }
-            } catch (e: SecurityException) {
-                Log.e("MicrobitBT", "SecurityException writeDescriptor: ${e.message}")
-                disconnect()
-                return
             }
 
             Log.d("MicrobitBT", "CCCD write started ok=$ok")
         }
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             Log.d("MicrobitBT", "CCCD write status=$status")
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -318,35 +237,27 @@ class Microbit(
             val req = reqChar ?: return
             val payload = reqPacket(EVT_LANE, 0)
 
-            handler.postDelayed({
-                val ok = try {
-                    if (Build.VERSION.SDK_INT >= 33) {
-                        g.writeCharacteristic(req, payload, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        run {
-                            req.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                            req.value = payload
-                            g.writeCharacteristic(req)
-                        }
-                    }
-                } catch (e: SecurityException) {
-                    Log.e("MicrobitBT", "SecurityException writeCharacteristic: ${e.message}")
-                    disconnect()
-                    return@postDelayed
+            val ok = if (Build.VERSION.SDK_INT >= 33) {
+                g.writeCharacteristic(req, payload, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    req.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    req.value = payload
+                    g.writeCharacteristic(req)
                 }
+            }
 
-                Log.d("MicrobitBT", "Register EVT_LANE write ok=$ok")
-            }, 120)
+            Log.d("MicrobitBT", "Register EVT_LANE write ok=$ok")
         }
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             if (characteristic.uuid != REQ_CHAR_UUID) return
 
             Log.d("MicrobitBT", "REQ write status=$status")
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d("MicrobitBT", "Registered EVT_LANE ✅ ready")
-                connected.set(true)
                 connecting.set(false)
             } else {
                 disconnect()
@@ -354,11 +265,7 @@ class Microbit(
         }
 
         // Android 13+
-        override fun onCharacteristicChanged(
-            g: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
+        override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             handleEvent(value)
         }
 
@@ -397,7 +304,7 @@ class Microbit(
 
     private fun cleanup(reason: String) {
         Log.d("MicrobitBT", "Cleanup: $reason")
-        stopScanInternal()
+        stopScan()
         scanning.set(false)
         connecting.set(false)
         connected.set(false)
@@ -406,5 +313,3 @@ class Microbit(
         busy.set(false)
     }
 }
-
-
