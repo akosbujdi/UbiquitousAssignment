@@ -36,18 +36,18 @@
             android:textColor="@color/black"
             android:id="@+id/textView"
             android:layout_width="match_parent"
-            android:layout_height="164dp"
+            android:layout_height="220dp"
             android:contentDescription="asdas"
-            android:text="Heyy welcome to our game some important informatiojn you need to know before playing. To switch from left to right you use the buttons on your microbit A(left) and B(right). To active the shield you press both buttons simultaneously.                                  Thanks for playing we hope you enjoy Drive safe :)    "
-            tools:text="Heyy welcome to our game some important informatiojn you need to know before playing. To switch from left to right you use the buttons on your microbit A(left) and B(right). To active the shield you press both buttons simultaneously.                                  Thanks for playing we hope you enjoy Drive safe :)    " />
+            android:text="Welcome to our game!\n\nBefore you start, here are a few important MicroBit tips:\n🔘 Press A to switch lanes left\n🔘 Press B to switch lanes right\n🛡️ When your shield bar is fully charged, press A + B together to activate the shield \n\nThanks for playing — we hope you enjoy the game!\nDrive safe! :)"
+            tools:text="Hey welcome to our game! Some important information you need to know before playing: To switch lanes you use the buttons on your MicroBit A(left) and B(right). When your shield bar fully charges press both A and B simultaneously to activate the shield. Thanks for playing, we hope you enjoy and Drive safe! :)" />
 
         <TextView
             android:textColor="@color/black"
             android:id="@+id/textView2"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Developers: Nicolae and Akosh"
-            tools:text="Developers: Nicolae and Akosh" />
+            android:text="Developers: Nicolae and Akos"
+            tools:text="Developers: Nicolae and Akos" />
 
     </LinearLayout>
 

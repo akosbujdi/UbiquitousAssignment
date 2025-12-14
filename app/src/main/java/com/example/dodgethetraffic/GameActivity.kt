@@ -31,9 +31,10 @@ class GameActivity : AppCompatActivity() {
     private var sCrash = 0
     fun restartGameMusic() {
         try {
-            music?.seekTo(0)      // optional (remove if you want it to continue)
+            music?.seekTo(0)
             music?.start()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,31 +76,43 @@ class GameActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        try { if (music?.isPlaying != true) music?.start() } catch (_: Exception) {}
+        try {
+            if (music?.isPlaying != true) music?.start()
+        } catch (_: Exception) {
+        }
         gameView.resume()
     }
 
     override fun onPause() {
         super.onPause()
-        try { music?.pause() } catch (_: Exception) {}
+        try {
+            music?.pause()
+        } catch (_: Exception) {
+        }
         gameView.pause()
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            music?.stop(); music?.release()
+        } catch (_: Exception) {
+        }
+        music = null
+        try {
+            pool?.release()
+        } catch (_: Exception) {
+        }
+        pool = null
+    }
+
+    // ---------------- micro:bit commands ----------------
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onStop() {
         super.onStop()
         safeDisconnect()
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        try { music?.stop(); music?.release() } catch (_: Exception) {}
-        music = null
-        try { pool?.release() } catch (_: Exception) {}
-        pool = null
-    }
-
-    // ---------------- micro:bit commands ----------------
 
     private fun handleMicrobitCommand(cmd: String) {
         when {
@@ -124,11 +137,17 @@ class GameActivity : AppCompatActivity() {
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private fun onGameCrash(score: Int) {
         playCrashSfx()
-        try { music?.pause() } catch (_: Exception) {}
+        try {
+            music?.pause()
+        } catch (_: Exception) {
+        }
 
         // micro:bit crash icon (ONLY if you exposed sendCrashIcon() as a public function in Microbit)
         if (hasConnectPerm()) {
-            try { microbit.sendCrashIcon() } catch (_: Exception) {}
+            try {
+                microbit.sendCrashIcon()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -167,12 +186,18 @@ class GameActivity : AppCompatActivity() {
 
     private fun hasConnectPerm(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                ActivityCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private fun safeDisconnect() {
         if (hasConnectPerm()) {
-            try { microbit.disconnect() } catch (_: Exception) {}
+            try {
+                microbit.disconnect()
+            } catch (_: Exception) {
+            }
         }
         lastLane = null
     }
@@ -185,7 +210,8 @@ class GameActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_BLE) {
-            val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            val granted =
+                grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             if (granted) startScan()
             else Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_LONG).show()
         }

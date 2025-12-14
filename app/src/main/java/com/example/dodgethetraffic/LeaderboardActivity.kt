@@ -12,6 +12,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 class LeaderboardActivity : AppCompatActivity() {
 
     private lateinit var leaderboardContainer: LinearLayout
+
+    // get firebase instance
     private val db = FirebaseFirestore.getInstance()
     private val sound by lazy { Sound.get(this) }
 
@@ -24,11 +26,18 @@ class LeaderboardActivity : AppCompatActivity() {
 
         loadLeaderboard()
     }
-    override fun onResume() { super.onResume(); sound.playMenuMusic() }
-    override fun onPause()  { super.onPause();  sound.pauseMusic() }
+
+    override fun onResume() {
+        super.onResume(); sound.playMenuMusic()
+    }
+
+    override fun onPause() {
+        super.onPause(); sound.pauseMusic()
+    }
 
     private fun loadLeaderboard() {
 
+        // load 'leaderboard' collection get top 5
         db.collection("leaderboard")
             .orderBy("score", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .limit(5)
@@ -38,15 +47,17 @@ class LeaderboardActivity : AppCompatActivity() {
 
                 var rank = 1
                 for (doc in snapshot) {
+                    // get name and score
                     val name = doc.getString("name") ?: "----"
                     val score = doc.getLong("score") ?: 0
 
                     val entry = TextView(this)
-                    entry.text = "$rank.  $name     —     $score"
+                    entry.text = "$rank.  $name   —   $score"
                     entry.textSize = 24f
                     entry.setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
                     entry.setPadding(8, 16, 8, 16)
 
+                    // colour 1st gold, 2nd silver, 3rd bronze
                     when (rank) {
                         1 -> entry.setTextColor(Color.parseColor("#FFD700")) // Gold
                         2 -> entry.setTextColor(Color.parseColor("#C0C0C0")) // Silver
@@ -58,6 +69,7 @@ class LeaderboardActivity : AppCompatActivity() {
                     rank++
                 }
             }
+            // error catch
             .addOnFailureListener {
                 val errorText = TextView(this)
                 errorText.text = "Error loading leaderboard."

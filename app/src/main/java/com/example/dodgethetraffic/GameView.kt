@@ -30,7 +30,10 @@ class GameView(
     private var lane = 1
 
     private var init = false
-    private var px = 0f; private var py = 0f; private var pw = 0f; private var ph = 0f
+    private var px = 0f;
+    private var py = 0f;
+    private var pw = 0f;
+    private var ph = 0f
     private var start = 0L
     private var nextSpawn = 0L
 
@@ -41,13 +44,14 @@ class GameView(
     private var shieldUntil = 0L
     private var lastTick = 0L
 
-    private val scorePaint = Paint().apply { color = Color.BLACK; textSize = 72f; typeface = Typeface.DEFAULT_BOLD }
+    private val scorePaint =
+        Paint().apply { color = Color.BLACK; textSize = 72f; typeface = Typeface.DEFAULT_BOLD }
     private val barBg = Paint().apply { color = Color.argb(130, 0, 0, 0) }
     private val barFill = Paint().apply { color = Color.argb(220, 0, 200, 255) }
-    private val barText = Paint().apply { color = Color.BLACK; textSize = 42f; typeface = Typeface.DEFAULT_BOLD }
-    private val glow = Paint().apply { color = Color.argb(110, 0, 200, 255); style = Paint.Style.FILL }
-
-
+    private val barText =
+        Paint().apply { color = Color.BLACK; textSize = 42f; typeface = Typeface.DEFAULT_BOLD }
+    private val glow =
+        Paint().apply { color = Color.argb(110, 0, 200, 255); style = Paint.Style.FILL }
 
 
     override fun run() {
@@ -86,11 +90,13 @@ class GameView(
             }
 
             val shieldActive = now < shieldUntil
-            if (!shieldActive && charge < chargeNeed) charge = (charge + dt).coerceAtMost(chargeNeed)
+            if (!shieldActive && charge < chargeNeed) charge =
+                (charge + dt).coerceAtMost(chargeNeed)
 
             if (now >= nextSpawn) {
                 spawn(w, diff)
-                nextSpawn = now + (1500L - (900L * diff)).toLong().coerceAtLeast(520L) + Random.nextLong(-220, 260)
+                nextSpawn = now + (1500L - (900L * diff)).toLong()
+                    .coerceAtLeast(520L) + Random.nextLong(-220, 260)
             }
 
             val speed = h * (0.004f + 0.010f * diff)
@@ -98,12 +104,21 @@ class GameView(
             while (it.hasNext()) {
                 val tc = it.next()
                 tc.y += speed
-                c.drawBitmap(Bitmap.createScaledBitmap(car, tc.w.toInt(), tc.h.toInt(), true), tc.x, tc.y, p)
+                c.drawBitmap(
+                    Bitmap.createScaledBitmap(car, tc.w.toInt(), tc.h.toInt(), true),
+                    tc.x,
+                    tc.y,
+                    p
+                )
 
-                if (tc.y > h) { it.remove(); continue }
+                if (tc.y > h) {
+                    it.remove(); continue
+                }
 
                 if (hit(px, py, pw, ph, tc.x, tc.y, tc.w, tc.h)) {
-                    if (shieldActive) { it.remove(); continue }
+                    if (shieldActive) {
+                        it.remove(); continue
+                    }
                     endGame((elapsed / 1000).toInt())
                 }
             }
@@ -174,19 +189,35 @@ class GameView(
         }.coerceIn(0, 2)
     }
 
-    private fun hit(px: Float, py: Float, pw: Float, ph: Float, x: Float, y: Float, w: Float, h: Float): Boolean {
+    private fun hit(
+        px: Float,
+        py: Float,
+        pw: Float,
+        ph: Float,
+        x: Float,
+        y: Float,
+        w: Float,
+        h: Float
+    ): Boolean {
         val pad = 0.2f
-        val aL = px + pw * pad; val aR = px + pw * (1 - pad)
-        val aT = py + ph * pad; val aB = py + ph * (1 - pad)
-        val bL = x + w * pad;  val bR = x + w * (1 - pad)
-        val bT = y + h * pad;  val bB = y + h * (1 - pad)
+        val aL = px + pw * pad;
+        val aR = px + pw * (1 - pad)
+        val aT = py + ph * pad;
+        val aB = py + ph * (1 - pad)
+        val bL = x + w * pad;
+        val bR = x + w * (1 - pad)
+        val bT = y + h * pad;
+        val bB = y + h * (1 - pad)
         return aR > bL && aL < bR && aB > bT && aT < bB
     }
 
     private fun drawBar(c: Canvas, screenW: Int, now: Long) {
         val active = now < shieldUntil
         val pct = charge.toFloat() / chargeNeed.toFloat()
-        val L = 50f; val T = 180f; val W = screenW - 100f; val H = 32f
+        val L = 50f;
+        val T = 180f;
+        val W = screenW - 100f;
+        val H = 32f
         c.drawRoundRect(L, T, L + W, T + H, 16f, 16f, barBg)
         c.drawRoundRect(L, T, L + W * pct, T + H, 16f, 16f, barFill)
 
@@ -209,10 +240,17 @@ class GameView(
 
     fun tryActivateShield() {
         val now = System.currentTimeMillis()
-        if (now >= shieldUntil && charge >= chargeNeed) { charge = 0L; shieldUntil = now + shieldDur }
+        if (now >= shieldUntil && charge >= chargeNeed) {
+            charge = 0L; shieldUntil = now + shieldDur
+        }
     }
 
-    fun pause() { playing = false; try { t?.join() } catch (_: Exception) {} }
+    fun pause() {
+        playing = false; try {
+            t?.join()
+        } catch (_: Exception) {
+        }
+    }
 
     fun resume() {
         if (playing) return
@@ -226,10 +264,13 @@ class GameView(
         if (!init) return true
         if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) {
             val x = e.x
-            var best = 0; var bestD = Float.MAX_VALUE
+            var best = 0;
+            var bestD = Float.MAX_VALUE
             for (i in 0..2) {
                 val d = abs(x - (laneX[i] + pw / 2f))
-                if (d < bestD) { bestD = d; best = i }
+                if (d < bestD) {
+                    bestD = d; best = i
+                }
             }
             movePlayerToLane(best)
         }
