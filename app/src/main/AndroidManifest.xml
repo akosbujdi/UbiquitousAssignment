@@ -38,6 +38,11 @@
             android:name=".LeaderboardActivity"
             android:exported="false"
             android:theme="@style/Theme.DodgeTheTraffic" />
+        <activity
+            android:name=".InformationActivity"
+            android:exported="false"
+            android:theme="@style/Theme.DodgeTheTraffic" />
+
 
         <activity
             android:name=".MainActivity"

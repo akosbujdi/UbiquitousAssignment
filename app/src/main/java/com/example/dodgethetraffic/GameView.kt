@@ -6,355 +6,232 @@ import android.view.MotionEvent
 import android.view.SurfaceView
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.random.Random
 
-data class TrafficCar(
-    var x: Float,
-    var y: Float,
-    val width: Float,
-    val height: Float
-)
+data class TrafficCar(var x: Float, var y: Float, val w: Float, val h: Float)
 
-class GameView(context: Context) : SurfaceView(context), Runnable {
+class GameView(
+    context: Context,
+    private val onLaneChanged: (from: Int, to: Int) -> Unit = { _, _ -> },
+    private val onCrash: (score: Int) -> Unit = { _ -> }
+) : SurfaceView(context), Runnable {
 
-    private var thread: Thread? = null
-    private var isPlaying = false
-    private val paint = Paint()
+    private var t: Thread? = null
+    private var playing = false
+    private var gameOver = false
+    private val p = Paint()
 
-    private var startTime: Long = 0L
-    private var elapsedTime: Long = 0L
-    private var score = 0
+    private val bg = BitmapFactory.decodeResource(resources, R.drawable.road)
+    private val me = BitmapFactory.decodeResource(resources, R.drawable.car)
+    private val car = BitmapFactory.decodeResource(resources, R.drawable.bluecar)
 
-    private val scorePaint = Paint().apply {
-        color = Color.BLACK
-        textSize = 72f
-        typeface = Typeface.DEFAULT_BOLD
-    }
+    private val cars = mutableListOf<TrafficCar>()
+    private val laneX = FloatArray(3)
+    private var lane = 1
 
-    private val backgroundBitmap = BitmapFactory.decodeResource(resources, R.drawable.road)
-    private val playerBitmap: Bitmap = BitmapFactory.decodeResource(resources, R.drawable.car)
-    private val blueCarBitmap = BitmapFactory.decodeResource(resources, R.drawable.bluecar)
+    private var init = false
+    private var px = 0f; private var py = 0f; private var pw = 0f; private var ph = 0f
+    private var start = 0L
+    private var nextSpawn = 0L
 
-    private var playerX = 0f
-    private var playerY = 0f
-    private var playerWidth = 0f
-    private var playerHeight = 0f
+    // ---- SHIELD ----
+    private val chargeNeed = 20_000L
+    private val shieldDur = 5_000L
+    private var charge = 0L
+    private var shieldUntil = 0L
+    private var lastTick = 0L
 
-    private val trafficCars = mutableListOf<TrafficCar>()
+    private val scorePaint = Paint().apply { color = Color.BLACK; textSize = 72f; typeface = Typeface.DEFAULT_BOLD }
+    private val barBg = Paint().apply { color = Color.argb(130, 0, 0, 0) }
+    private val barFill = Paint().apply { color = Color.argb(220, 0, 200, 255) }
+    private val barText = Paint().apply { color = Color.BLACK; textSize = 42f; typeface = Typeface.DEFAULT_BOLD }
+    private val glow = Paint().apply { color = Color.argb(110, 0, 200, 255); style = Paint.Style.FILL }
 
-    // ---- LANE SETUP (3 lanes) ----
-    private val laneCount = 3
-    private var laneX = FloatArray(laneCount)
-    private var currentLane = 1 // start in middle lane
 
-    // --- NEW SPAWN SYSTEM ---
-    private var nextSpawnAt = System.currentTimeMillis() + 1200L
-    private var lastLane = 1
 
-    private val hitboxPadding = 0.2f
-    private var initialized = false
-
-    // tweak these
-    private val baseSpeedFactor = 0.015f
 
     override fun run() {
-        while (isPlaying) {
+        while (playing) {
             if (!holder.surface.isValid) continue
-            val canvas: Canvas = holder.lockCanvas()
+            val c = holder.lockCanvas()
 
-            elapsedTime = System.currentTimeMillis() - startTime
-
-            val screenWidth = canvas.width
-            val screenHeight = canvas.height
-
-            // Draw background
-            canvas.drawBitmap(
-                Bitmap.createScaledBitmap(backgroundBitmap, screenWidth, screenHeight, false),
-                0f, 0f, paint
-            )
-
-            // One-time layout init
-            if (!initialized) {
-                playerWidth = screenWidth * 0.24f
-                playerHeight = playerWidth * (playerBitmap.height.toFloat() / playerBitmap.width.toFloat())
-                playerY = screenHeight * 0.7f
-
-                val trafficWidth = screenWidth * 0.24f
-                val roadLeft = screenWidth * 0.08f
-                val roadRight = screenWidth * 0.92f
-
-                val usable = (roadRight - roadLeft - trafficWidth)
-                val step = usable / (laneCount - 1)
-
-                for (i in 0 until laneCount) {
-                    laneX[i] = roadLeft + i * step
-                }
-
-                playerX = laneX[currentLane]
-                initialized = true
-            }
-
-            // -------------------------
-            // Better spawn logic here ✅
-            // -------------------------
             val now = System.currentTimeMillis()
-            if (now >= nextSpawnAt) {
-                spawnTraffic(screenWidth)
-                scheduleNextSpawn()
+            if (lastTick == 0L) lastTick = now
+            val dt = (now - lastTick).coerceAtMost(80L)
+            lastTick = now
+
+            val w = c.width
+            val h = c.height
+            val elapsed = now - start
+            val diff = (elapsed / 60_000f).coerceIn(0f, 1f)
+
+            c.drawBitmap(Bitmap.createScaledBitmap(bg, w, h, false), 0f, 0f, p)
+
+            if (!init) {
+                pw = w * 0.24f
+                ph = pw * (me.height.toFloat() / me.width.toFloat())
+                py = h * 0.7f
+
+                val roadL = w * 0.08f
+                val roadR = w * 0.92f
+                val step = (roadR - roadL - pw) / 2f
+                laneX[0] = roadL
+                laneX[1] = roadL + step
+                laneX[2] = roadL + step * 2f
+
+                px = laneX[lane]
+                start = now
+                nextSpawn = now + 900L
+                init = true
             }
 
-            // Difficulty: slightly faster cars over time
-            val difficulty = difficulty01() // 0..1
-            val trafficSpeed = screenHeight * (baseSpeedFactor + 0.010f * difficulty)
+            val shieldActive = now < shieldUntil
+            if (!shieldActive && charge < chargeNeed) charge = (charge + dt).coerceAtMost(chargeNeed)
 
-            // Move traffic + collisions
-            val iterator = trafficCars.iterator()
-            while (iterator.hasNext()) {
-                val car = iterator.next()
-                car.y += trafficSpeed
+            if (now >= nextSpawn) {
+                spawn(w, diff)
+                nextSpawn = now + (1500L - (900L * diff)).toLong().coerceAtLeast(520L) + Random.nextLong(-220, 260)
+            }
 
-                canvas.drawBitmap(
-                    Bitmap.createScaledBitmap(blueCarBitmap, car.width.toInt(), car.height.toInt(), true),
-                    car.x, car.y, paint
-                )
+            val speed = h * (0.004f + 0.010f * diff)
+            val it = cars.iterator()
+            while (it.hasNext()) {
+                val tc = it.next()
+                tc.y += speed
+                c.drawBitmap(Bitmap.createScaledBitmap(car, tc.w.toInt(), tc.h.toInt(), true), tc.x, tc.y, p)
 
-                if (car.y > screenHeight) iterator.remove()
+                if (tc.y > h) { it.remove(); continue }
 
-                val carLeft = car.x + car.width * hitboxPadding
-                val carRight = car.x + car.width * (1 - hitboxPadding)
-                val carTop = car.y + car.height * hitboxPadding
-                val carBottom = car.y + car.height * (1 - hitboxPadding)
-
-                val playerLeft = playerX + playerWidth * hitboxPadding
-                val playerRight = playerX + playerWidth * (1 - hitboxPadding)
-                val playerTop = playerY + playerHeight * hitboxPadding
-                val playerBottom = playerY + playerHeight * (1 - hitboxPadding)
-
-                if (playerRight > carLeft &&
-                    playerLeft < carRight &&
-                    playerBottom > carTop &&
-                    playerTop < carBottom
-                ) {
-                    isPlaying = false
-                    post { showGameOverDialog() }
+                if (hit(px, py, pw, ph, tc.x, tc.y, tc.w, tc.h)) {
+                    if (shieldActive) { it.remove(); continue }
+                    endGame((elapsed / 1000).toInt())
                 }
             }
 
-            // Draw player
-            canvas.drawBitmap(
-                Bitmap.createScaledBitmap(playerBitmap, playerWidth.toInt(), playerHeight.toInt(), true),
-                playerX, playerY, paint
-            )
+            if (shieldActive) c.drawCircle(px + pw / 2f, py + ph / 2f, max(pw, ph) * 0.75f, glow)
+            c.drawBitmap(Bitmap.createScaledBitmap(me, pw.toInt(), ph.toInt(), true), px, py, p)
 
-            // Score
-            score = (elapsedTime / 1000).toInt()
-            canvas.drawText("Score: $score", 50f, 100f, scorePaint)
+            val score = (elapsed / 1000).toInt()
+            c.drawText("Score: $score", 50f, 100f, scorePaint)
+            drawBar(c, w, now)
 
-            holder.unlockCanvasAndPost(canvas)
+            holder.unlockCanvasAndPost(c)
         }
     }
 
-    // 0..1 over time (ramps over ~60s then caps)
-    private fun difficulty01(): Float {
-        val s = (elapsedTime / 1000f)
-        return (s / 60f).coerceIn(0f, 1f)
-    }
-
-    private fun scheduleNextSpawn() {
-        val d = difficulty01()
-
-        // interval shrinks with difficulty (more intense)
-        val base = 1500L
-        val minInt = 520L
-        val interval = (base - (900L * d)).toLong().coerceAtLeast(minInt)
-
-        // add jitter so it’s not robotic
-        val jitter = Random.nextLong(-220L, 260L)
-
-        nextSpawnAt = System.currentTimeMillis() + max(220L, interval + jitter)
-    }
-
-    private fun spawnTraffic(screenWidth: Int) {
-        val trafficWidth = screenWidth * 0.24f
-        val trafficHeight = trafficWidth * (blueCarBitmap.height.toFloat() / blueCarBitmap.width.toFloat())
-
-        val d = difficulty01()
-
-        // pattern weights (more chaos as difficulty rises)
-        val roll = Random.nextFloat()
-
-        when {
-            // mostly single early game
-            roll < (0.60f - 0.20f * d) -> {
-                val lane = pickLane()
-                spawnCar(lane, trafficWidth, trafficHeight, yOffset = 0f)
-            }
-
-            // double spawn in 2 lanes (gets more common later)
-            roll < (0.88f - 0.05f * (1f - d)) -> {
-                val (a, b) = pickTwoLanes()
-                // slight y offset so they don't look identical
-                spawnCar(a, trafficWidth, trafficHeight, yOffset = 0f)
-                spawnCar(b, trafficWidth, trafficHeight, yOffset = -(trafficHeight * 0.35f))
-            }
-
-            // “train” in same lane (staggered)
-            roll < 0.95f -> {
-                val lane = pickLane()
-                spawnCar(lane, trafficWidth, trafficHeight, yOffset = 0f)
-                spawnCar(lane, trafficWidth, trafficHeight, yOffset = -(trafficHeight * 0.85f))
-            }
-
-           
+    private fun endGame(score: Int) {
+        if (gameOver) return
+        gameOver = true
+        playing = false
+        post {
+            onCrash(score)
+            showGameOverDialog(score)
         }
     }
 
-    private fun spawnCar(lane: Int, w: Float, h: Float, yOffset: Float) {
-        trafficCars.add(
-            TrafficCar(
-                x = laneX[lane],
-                y = -h + yOffset,
-                width = w,
-                height = h
-            )
-        )
-        lastLane = lane
-    }
-
-    // makes lane choice feel less random/boring (tends to drift left/right)
-    private fun pickLane(): Int {
-        val roll = Random.nextFloat()
-        val lane = when {
-            roll < 0.55f -> lastLane                           // repeat sometimes
-            roll < 0.85f -> (lastLane + if (Random.nextBoolean()) 1 else -1) // adjacent
-            else -> Random.nextInt(0, laneCount)               // jump
-        }.coerceIn(0, laneCount - 1)
-
-        return lane
-    }
-
-    private fun pickTwoLanes(): Pair<Int, Int> {
-        val first = pickLane()
-        var second = Random.nextInt(0, laneCount)
-        while (second == first) second = Random.nextInt(0, laneCount)
-        return Pair(first, second)
-    }
-
-    // a simple “wave” burst pattern
-    private fun pickBurstSequence(): IntArray {
-        return if (Random.nextBoolean()) intArrayOf(0, 1, 2) else intArrayOf(2, 1, 0)
-    }
-
-    fun pause() {
-        isPlaying = false
-        try { thread?.join() } catch (_: InterruptedException) {}
-    }
-
-    fun resume() {
-        isPlaying = true
-        startTime = System.currentTimeMillis()
-        nextSpawnAt = System.currentTimeMillis() + 900L
-        thread = Thread(this)
-        thread?.start()
-    }
-
-    fun movePlayerToLane(lane: Int) {
-        val clamped = lane.coerceIn(0, laneCount - 1)
-        currentLane = clamped
-        if (initialized) playerX = laneX[currentLane]
-    }
-
-    private fun showGameOverDialog() {
-        val builder = android.app.AlertDialog.Builder(context)
-        builder.setTitle("You Crashed!")
-        builder.setMessage("Your score: $score")
-        builder.setCancelable(false)
-
-        builder.setPositiveButton("Play Again") { _, _ -> resetGame() }
-        builder.setNegativeButton("Main Menu") { _, _ ->
-            if (context is android.app.Activity) (context as android.app.Activity).finish()
-        }
-        builder.setNeutralButton("Save Score") { _, _ -> promptSaveScore() }
-
-        builder.show()
-    }
-
-    private fun promptSaveScore() {
-        val input = android.widget.EditText(context)
-        input.filters = arrayOf(
-            android.text.InputFilter.LengthFilter(4),
-            android.text.InputFilter { source, _, _, _, _, _ ->
-                if (source.toString().matches(Regex("[a-zA-Z]+"))) source else ""
+    private fun showGameOverDialog(score: Int) {
+        android.app.AlertDialog.Builder(context)
+            .setTitle("You Crashed!")
+            .setMessage("Your score: $score")
+            .setCancelable(false)
+            .setPositiveButton("Play Again") { _, _ ->
+                (context as? GameActivity)?.restartGameMusic()
+                resetGame()
             }
-        )
-        input.hint = "4-letter username"
-        input.isSingleLine = true
 
-        val builder = android.app.AlertDialog.Builder(context)
-        builder.setTitle("Enter your name")
-        builder.setMessage("Use 4 letters, like old arcade games!")
-        builder.setView(input)
-        builder.setCancelable(false)
 
-        builder.setPositiveButton("Save") { _, _ ->
-            val name = input.text.toString().uppercase()
-            if (name.length == 4) saveScoreToFirebase(name, score)
-            else android.widget.Toast.makeText(context, "Name must be exactly 4 letters!", android.widget.Toast.LENGTH_SHORT).show()
-        }
-
-        builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
-        builder.show()
-    }
-
-    private fun saveScoreToFirebase(name: String, score: Int) {
-        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-        val entry = hashMapOf("name" to name, "score" to score, "timestamp" to System.currentTimeMillis())
-
-        db.collection("leaderboard")
-            .add(entry)
-            .addOnSuccessListener {
-                android.widget.Toast.makeText(context, "Score saved!", android.widget.Toast.LENGTH_SHORT).show()
-                if (context is android.app.Activity) (context as android.app.Activity).finish()
-            }
-            .addOnFailureListener {
-                android.widget.Toast.makeText(context, "Failed to save score!", android.widget.Toast.LENGTH_SHORT).show()
-            }
+            .setNegativeButton("Main Menu") { _, _ -> (context as? android.app.Activity)?.finish() }
+            .show()
     }
 
     private fun resetGame() {
-        currentLane = 1
-        if (initialized) playerX = laneX[currentLane]
-        playerY = height * 0.7f
-
-        trafficCars.clear()
-        startTime = System.currentTimeMillis()
-        elapsedTime = 0L
-        score = 0
-
-        nextSpawnAt = System.currentTimeMillis() + 900L
-
-        isPlaying = true
-        thread = Thread(this)
-        thread?.start()
+        cars.clear()
+        movePlayerToLane(1)            // ✅ keeps lane logic consistent (+ plays sfx only if it actually changed)
+        charge = 0L; shieldUntil = 0L; lastTick = 0L
+        gameOver = false
+        resume()
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!initialized) return true
+    private fun spawn(screenW: Int, diff: Float) {
+        val cw = screenW * 0.24f
+        val ch = cw * (car.height.toFloat() / car.width.toFloat())
+        fun add(l: Int, yOff: Float = 0f) = cars.add(TrafficCar(laneX[l], -ch + yOff, cw, ch))
 
-        if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
-            val touchX = event.x
-            var bestLane = 0
-            var bestDist = Float.MAX_VALUE
+        if (Random.nextFloat() < (0.60f - 0.20f * diff)) add(pickLane())
+        else {
+            val a = pickLane()
+            var b = Random.nextInt(0, 3); while (b == a) b = Random.nextInt(0, 3)
+            add(a); add(b, -(ch * 0.35f))
+        }
+    }
 
-            for (i in 0 until laneCount) {
-                val dist = abs(touchX - (laneX[i] + playerWidth / 2f))
-                if (dist < bestDist) {
-                    bestDist = dist
-                    bestLane = i
-                }
+    private fun pickLane(): Int {
+        val r = Random.nextFloat()
+        return when {
+            r < 0.55f -> lane
+            r < 0.85f -> (lane + if (Random.nextBoolean()) 1 else -1)
+            else -> Random.nextInt(0, 3)
+        }.coerceIn(0, 2)
+    }
+
+    private fun hit(px: Float, py: Float, pw: Float, ph: Float, x: Float, y: Float, w: Float, h: Float): Boolean {
+        val pad = 0.2f
+        val aL = px + pw * pad; val aR = px + pw * (1 - pad)
+        val aT = py + ph * pad; val aB = py + ph * (1 - pad)
+        val bL = x + w * pad;  val bR = x + w * (1 - pad)
+        val bT = y + h * pad;  val bB = y + h * (1 - pad)
+        return aR > bL && aL < bR && aB > bT && aT < bB
+    }
+
+    private fun drawBar(c: Canvas, screenW: Int, now: Long) {
+        val active = now < shieldUntil
+        val pct = charge.toFloat() / chargeNeed.toFloat()
+        val L = 50f; val T = 180f; val W = screenW - 100f; val H = 32f
+        c.drawRoundRect(L, T, L + W, T + H, 16f, 16f, barBg)
+        c.drawRoundRect(L, T, L + W * pct, T + H, 16f, 16f, barFill)
+
+        val text = when {
+            active -> "SHIELD ACTIVE"
+            pct >= 1f -> "SHIELD READY (A+B)"
+            else -> "SHIELD ${(pct * 100).toInt()}%"
+        }
+        c.drawText(text, L, T - 15f, barText)
+    }
+
+    fun movePlayerToLane(l: Int) {
+        val from = lane
+        val to = l.coerceIn(0, 2)
+        if (from == to) return
+        lane = to
+        if (init) px = laneX[lane]
+        onLaneChanged(from, to)
+    }
+
+    fun tryActivateShield() {
+        val now = System.currentTimeMillis()
+        if (now >= shieldUntil && charge >= chargeNeed) { charge = 0L; shieldUntil = now + shieldDur }
+    }
+
+    fun pause() { playing = false; try { t?.join() } catch (_: Exception) {} }
+
+    fun resume() {
+        if (playing) return
+        playing = true
+        start = System.currentTimeMillis()
+        nextSpawn = start + 900L
+        t = Thread(this); t?.start()
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (!init) return true
+        if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) {
+            val x = e.x
+            var best = 0; var bestD = Float.MAX_VALUE
+            for (i in 0..2) {
+                val d = abs(x - (laneX[i] + pw / 2f))
+                if (d < bestD) { bestD = d; best = i }
             }
-            movePlayerToLane(bestLane)
+            movePlayerToLane(best)
         }
         return true
     }

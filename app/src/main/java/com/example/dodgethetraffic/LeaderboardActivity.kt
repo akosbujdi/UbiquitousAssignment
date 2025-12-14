@@ -13,6 +13,7 @@ class LeaderboardActivity : AppCompatActivity() {
 
     private lateinit var leaderboardContainer: LinearLayout
     private val db = FirebaseFirestore.getInstance()
+    private val sound by lazy { Sound.get(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -23,6 +24,8 @@ class LeaderboardActivity : AppCompatActivity() {
 
         loadLeaderboard()
     }
+    override fun onResume() { super.onResume(); sound.playMenuMusic() }
+    override fun onPause()  { super.onPause();  sound.pauseMusic() }
 
     private fun loadLeaderboard() {
 

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="24dp"
+    android:background="@drawable/app_background">
+
+    <LinearLayout
+        android:id="@+id/leaderboardContainer"
+        android:layout_width="327dp"
+        android:layout_height="460dp"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="153dp"
+        android:layout_marginBottom="94dp"
+        android:background="@drawable/menu_box"
+        android:elevation="6dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="22dp">
+
+        <TextView
+            android:textColor="@color/black"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="24dp"
+            android:text="Information"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:textColor="@color/black"
+            android:id="@+id/textView"
+            android:layout_width="match_parent"
+            android:layout_height="164dp"
+            android:contentDescription="asdas"
+            android:text="Heyy welcome to our game some important informatiojn you need to know before playing. To switch from left to right you use the buttons on your microbit A(left) and B(right). To active the shield you press both buttons simultaneously.                                  Thanks for playing we hope you enjoy Drive safe :)    "
+            tools:text="Heyy welcome to our game some important informatiojn you need to know before playing. To switch from left to right you use the buttons on your microbit A(left) and B(right). To active the shield you press both buttons simultaneously.                                  Thanks for playing we hope you enjoy Drive safe :)    " />
+
+        <TextView
+            android:textColor="@color/black"
+            android:id="@+id/textView2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Developers: Nicolae and Akosh"
+            tools:text="Developers: Nicolae and Akosh" />
+
+    </LinearLayout>
+
+</RelativeLayout>

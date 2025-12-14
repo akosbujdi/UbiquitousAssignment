@@ -20,6 +20,7 @@
         android:elevation="6dp">
 
         <TextView
+            android:textColor="@color/black"
             android:id="@+id/titleText"
             android:text="Dodge The Traffic"
             android:textSize="32sp"
