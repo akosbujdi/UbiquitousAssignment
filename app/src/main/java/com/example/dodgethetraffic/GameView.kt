@@ -17,10 +17,13 @@ class GameView(
 ) : SurfaceView(context), Runnable {
 
     private var t: Thread? = null
+
+    // boolean variables checked throughout
     private var playing = false
     private var gameOver = false
     private val p = Paint()
 
+    // assets to paint (background, player car, traffic)
     private val bg = BitmapFactory.decodeResource(resources, R.drawable.road)
     private val me = BitmapFactory.decodeResource(resources, R.drawable.car)
     private val car = BitmapFactory.decodeResource(resources, R.drawable.bluecar)
@@ -44,12 +47,18 @@ class GameView(
     private var shieldUntil = 0L
     private var lastTick = 0L
 
+    // score count (top corner)
     private val scorePaint =
         Paint().apply { color = Color.BLACK; textSize = 72f; typeface = Typeface.DEFAULT_BOLD }
     private val barBg = Paint().apply { color = Color.argb(130, 0, 0, 0) }
     private val barFill = Paint().apply { color = Color.argb(220, 0, 200, 255) }
+
+    // shield bar text
     private val barText =
         Paint().apply { color = Color.BLACK; textSize = 42f; typeface = Typeface.DEFAULT_BOLD }
+
+
+    // glow used when shield is activated
     private val glow =
         Paint().apply { color = Color.argb(110, 0, 200, 255); style = Paint.Style.FILL }
 
@@ -71,6 +80,7 @@ class GameView(
 
             c.drawBitmap(Bitmap.createScaledBitmap(bg, w, h, false), 0f, 0f, p)
 
+            // initialize lanes
             if (!init) {
                 pw = w * 0.24f
                 ph = pw * (me.height.toFloat() / me.width.toFloat())
@@ -89,16 +99,19 @@ class GameView(
                 init = true
             }
 
+            // charge shield logic
             val shieldActive = now < shieldUntil
             if (!shieldActive && charge < chargeNeed) charge =
                 (charge + dt).coerceAtMost(chargeNeed)
 
+            // spawn logic
             if (now >= nextSpawn) {
                 spawn(w, diff)
                 nextSpawn = now + (1500L - (900L * diff)).toLong()
                     .coerceAtLeast(520L) + Random.nextLong(-220, 260)
             }
 
+            // increase speed of traffic over time
             val speed = h * (0.004f + 0.010f * diff)
             val it = cars.iterator()
             while (it.hasNext()) {
@@ -111,10 +124,12 @@ class GameView(
                     p
                 )
 
+                // remove out of screen entities
                 if (tc.y > h) {
                     it.remove(); continue
                 }
 
+                // collision logic (with shield, remove car hit, without shield end game)
                 if (hit(px, py, pw, ph, tc.x, tc.y, tc.w, tc.h)) {
                     if (shieldActive) {
                         it.remove(); continue
@@ -123,9 +138,11 @@ class GameView(
                 }
             }
 
+            // draw shield when activated
             if (shieldActive) c.drawCircle(px + pw / 2f, py + ph / 2f, max(pw, ph) * 0.75f, glow)
             c.drawBitmap(Bitmap.createScaledBitmap(me, pw.toInt(), ph.toInt(), true), px, py, p)
 
+            // calculate score based on elapsed time
             val score = (elapsed / 1000).toInt()
             c.drawText("Score: $score", 50f, 100f, scorePaint)
             drawBar(c, w, now)
@@ -134,6 +151,7 @@ class GameView(
         }
     }
 
+    // end game logic, show dialog
     private fun endGame(score: Int) {
         if (gameOver) return
         gameOver = true
@@ -144,6 +162,7 @@ class GameView(
         }
     }
 
+    // game over dialog
     private fun showGameOverDialog(score: Int) {
         android.app.AlertDialog.Builder(context)
             .setTitle("You Crashed!")
@@ -159,14 +178,16 @@ class GameView(
             .show()
     }
 
+    // reset game from game over dialog
     private fun resetGame() {
         cars.clear()
-        movePlayerToLane(1)            // ✅ keeps lane logic consistent (+ plays sfx only if it actually changed)
+        movePlayerToLane(1)
         charge = 0L; shieldUntil = 0L; lastTick = 0L
         gameOver = false
         resume()
     }
 
+    // spawn logic for traffic
     private fun spawn(screenW: Int, diff: Float) {
         val cw = screenW * 0.24f
         val ch = cw * (car.height.toFloat() / car.width.toFloat())
@@ -180,6 +201,7 @@ class GameView(
         }
     }
 
+    // pick lane for oncoming traffic
     private fun pickLane(): Int {
         val r = Random.nextFloat()
         return when {
@@ -189,6 +211,7 @@ class GameView(
         }.coerceIn(0, 2)
     }
 
+    // logic used for calculating collision (overlap)
     private fun hit(
         px: Float,
         py: Float,
@@ -211,6 +234,7 @@ class GameView(
         return aR > bL && aL < bR && aB > bT && aT < bB
     }
 
+    // draw shield bar on screen
     private fun drawBar(c: Canvas, screenW: Int, now: Long) {
         val active = now < shieldUntil
         val pct = charge.toFloat() / chargeNeed.toFloat()
@@ -229,6 +253,7 @@ class GameView(
         c.drawText(text, L, T - 15f, barText)
     }
 
+    // logic handling lane switching
     fun movePlayerToLane(l: Int) {
         val from = lane
         val to = l.coerceIn(0, 2)
@@ -238,6 +263,7 @@ class GameView(
         onLaneChanged(from, to)
     }
 
+    // user attempting to activate shield
     fun tryActivateShield() {
         val now = System.currentTimeMillis()
         if (now >= shieldUntil && charge >= chargeNeed) {
@@ -245,6 +271,7 @@ class GameView(
         }
     }
 
+    // user pausing the game (closing app)
     fun pause() {
         playing = false; try {
             t?.join()
@@ -252,6 +279,7 @@ class GameView(
         }
     }
 
+    // user returning to game
     fun resume() {
         if (playing) return
         playing = true
@@ -260,6 +288,7 @@ class GameView(
         t = Thread(this); t?.start()
     }
 
+    // touch logic (if used without microbit, only swiping)
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!init) return true
         if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) {
