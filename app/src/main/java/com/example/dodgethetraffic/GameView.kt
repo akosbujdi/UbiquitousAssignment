@@ -173,6 +173,9 @@ class GameView(
                 resetGame()
             }
 
+            .setNeutralButton("Save Score") { _, _ ->
+                promptSaveScore(score)
+            }
 
             .setNegativeButton("Main Menu") { _, _ -> (context as? android.app.Activity)?.finish() }
             .show()
@@ -185,6 +188,72 @@ class GameView(
         charge = 0L; shieldUntil = 0L; lastTick = 0L
         gameOver = false
         resume()
+    }
+
+
+    // save score dialog
+    private fun promptSaveScore(score: Int) {
+        val input = android.widget.EditText(context)
+        // Only allow A–Z, limit to 4 characters
+        input.filters = arrayOf(
+            android.text.InputFilter.LengthFilter(4),
+            android.text.InputFilter { source, _, _, _, _, _ ->
+                if (source.toString().matches(Regex("[a-zA-Z]+"))) {
+                    source
+                } else ""
+            }
+        )
+        input.hint = "4-letter username"
+        input.isSingleLine = true
+        val builder = android.app.AlertDialog.Builder(context)
+        builder.setTitle("Enter your name")
+        builder.setMessage("Use 4 letters, like old arcade games!")
+        builder.setView(input)
+        builder.setCancelable(false)
+        builder.setPositiveButton("Save") { _, _ ->
+            val name = input.text.toString().uppercase()
+            if (name.length == 4) {
+                saveScoreToFirebase(name, score)
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    "Leaderboard name must be exactly 4 letters!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+        builder.show()
+    }
+
+    // append score to firebase
+    private fun saveScoreToFirebase(name: String, score: Int) {
+        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        val entry = hashMapOf(
+            "name" to name,
+            "score" to score,
+            "timestamp" to System.currentTimeMillis()
+        )
+
+        db.collection("leaderboard")
+            .add(entry)
+            .addOnSuccessListener {
+                android.widget.Toast.makeText(
+                    context,
+                    "Score saved!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                if (context is android.app.Activity) {
+                    (context as android.app.Activity).finish()
+                }
+            }
+            .addOnFailureListener {
+                android.widget.Toast.makeText(
+                    context,
+                    "Failed to save score!",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
     }
 
     // spawn logic for traffic
